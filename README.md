@@ -1,7 +1,7 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# lsOptim
+# myregression
 
 *A lightweight teaching package illustrating least squares estimation
 via optimization and bootstrap inference.*
