@@ -1,8 +1,15 @@
-# ------------------------------------------------------------------------------
-# Core least-squares loss (sum of squared residuals)
-# ------------------------------------------------------------------------------
-
-
+#' Least-squares loss for linear regression
+#'
+#' Computes the sum of squared residuals \eqn{\sum_i (y_i - x_i^\top \beta)^2}
+#' for a given coefficient vector \code{beta}, design matrix \code{X}, and
+#' response vector \code{y}. Intended for use as an objective in \code{\link[stats]{optim}}.
+#'
+#' @param beta Numeric vector of length \eqn{p}; regression coefficients.
+#' @param X Numeric matrix \eqn{n \times p}. Should already include an intercept
+#'   column if desired.
+#' @param y Numeric vector of length \eqn{n}; responses.
+#'
+#' @return A single numeric value: the sum of squared residuals.
 ls_loss <- function(beta, X, y) {
   # X: n x p (already includes intercept if desired)
   # y: n-vector
@@ -11,36 +18,55 @@ ls_loss <- function(beta, X, y) {
   sum(res^2)
 }
 
-# ------------------------------------------------------------------------------
-# Fitter: my_lm()
-#   - Minimizes ls_loss with optim()
-#   - Pairs bootstrap of rows to estimate vcov(N2L)
-# ------------------------------------------------------------------------------
-
-#' @title Linear regression via optimization
+#' Least-squares via \code{optim()} with bootstrap covariance
 #'
-#' @description Uses a least-square loss to estimate coefficients and provide inference tools
-#' @param X A \code{matrix} (not a data frame) of dimension nxp representing numerical predictors
-#' @param y A \code{vector} that represents the numeric response.
-#' @param B A \code{numeric} (integer) used to denote the number of bootstrap replications.
-#' @param seed A \code{numeric} used to control the seed of the random number
-#' generator used by this function.
-#' @return A \code{list} of class ls_optim:
-#' \describe{
-#'      \item{I}{Estimated value of the integral}
-#'      \item{var}{Estimated variance of the estimator}
+#' Fits a linear model by minimizing the least-squares loss using
+#' \code{\link[stats]{optim}}, then estimates \eqn{\mathrm{Cov}(\hat\beta)} via a
+#' pairs (row) bootstrap of size \code{B}.
+#'
+#' @param X Numeric matrix \eqn{n \times p} of predictors. If \code{add_intercept = TRUE},
+#'   an intercept column is prepended internally.
+#' @param y Numeric response vector of length \eqn{n}.
+#' @param B Integer; number of bootstrap resamples (default \code{100}).
+#' @param add_intercept Logical; if \code{TRUE} (default) add an intercept column to \code{X}.
+#' @param optim_method Character; passed to \code{\link[stats]{optim}}'s \code{method} (default \code{"BFGS"}).
+#' @param optim_control List; control list passed to \code{\link[stats]{optim}} (default \code{list(maxit = 1000)}).
+#' @param ... Additional arguments forwarded to \code{\link[stats]{optim}}.
+#'
+#' @details
+#' The function performs:
+#' \enumerate{
+#' \item Deterministic fit of \eqn{\hat\beta} by minimizing \code{\link{ls_loss}} with \code{\link[stats]{optim}}.
+#' \item Pairs bootstrap: resample rows of \code{(X, y)} \code{B} times, refit, and compute
+#'   the sample covariance matrix of the bootstrap coefficients.
 #' }
-#' @author Roberto Molinari
-#' @importFrom stats runif
-#' @export
+#' If too few bootstrap fits succeed, the covariance matrix is filled with \code{NA}.
+#'
+#' @return An object of class \code{"ls_optim"} with elements:
+#' \itemize{
+#' \item \code{coefficients} — numeric named vector of \eqn{\hat\beta}.
+#' \item \code{vcov} — bootstrap covariance matrix of \eqn{\hat\beta}.
+#' \item \code{betas_boot} — matrix of bootstrap coefficient draws (rows).
+#' \item \code{fitted}, \code{residuals}, \code{sigma2_hat}, \code{df_residual}.
+#' \item \code{X}, \code{y}, \code{call}, \code{converged}, \code{B}, \code{add_intercept}.
+#' }
+#'
+#' @seealso \code{\link[stats]{optim}}, \code{\link{summary.ls_optim}},
+#'   \code{\link{predict.ls_optim}}
+#'
 #' @examples
+#' \donttest{
 #' set.seed(1)
-#' n <- 120; p <- 8
-#' X <- matrix(rnorm(n * p), n, p)
-#' colnames(X) <- paste0("x", 1:p)
-#' beta_true <- c(2, -1.5, 0, 0, 1, rep(0, p - 5))
-#' y <- as.vector(X %*% beta_true + rnorm(n, sd = 1))
-#' fit <- my_lm(X, y, B = 200, add_intercept = TRUE)
+#' n <- 100; p <- 3
+#' X <- matrix(rnorm(n*p), n, p); colnames(X) <- paste0("x",1:p)
+#' beta <- c(2, -1, 0.5)
+#' y <- as.vector(cbind(1, X) %*% c(1, beta) + rnorm(n))
+#' fit <- my_lm(X, y, B = 50)
+#' print(fit)
+#' }
+#'
+#' @importFrom stats optim cov complete.cases
+#' @export
 my_lm <- function(X, y, B = 100, add_intercept = TRUE, optim_method = "BFGS", optim_control = list(maxit = 1000), ...) {
 
   stopifnot(is.matrix(X), is.numeric(y), nrow(X) == length(y))
@@ -124,9 +150,15 @@ my_lm <- function(X, y, B = 100, add_intercept = TRUE, optim_method = "BFGS", op
   out
 }
 
-# ------------------------------------------------------------------------------
-# Methods: print(), coef(), vcov(), fitted(), residuals(), predict()
-# ------------------------------------------------------------------------------
+#' Print method for \code{ls_optim}
+#'
+#' @param x An object of class \code{"ls_optim"}.
+#' @param ... Unused; included for S3 consistency.
+#'
+#' @return Invisibly returns \code{x}.
+#'
+#' @method print ls_optim
+#' @export
 print.ls_optim <- function(x, ...) {
   cat("Call:\n")
   print(x$call)
@@ -136,11 +168,66 @@ print.ls_optim <- function(x, ...) {
   invisible(x)
 }
 
+#' Coefficients for \code{ls_optim}
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param ... Unused.
+#' @return Named numeric vector of coefficients.
+#'
+#' @method coef ls_optim
+#' @export
 coef.ls_optim <- function(object, ...) object$coefficients
+
+#' Variance-covariance matrix for \code{ls_optim}
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param ... Unused.
+#' @return Numeric covariance matrix of coefficients (bootstrap estimate).
+#'
+#' @method vcov ls_optim
+#' @export
 vcov.ls_optim <- function(object, ...) object$vcov
+
+#' Fitted values for \code{ls_optim}
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param ... Unused.
+#' @return Numeric vector of fitted values.
+#'
+#' @method fitted ls_optim
+#' @export
 fitted.ls_optim <- function(object, ...) object$fitted
+
+#' Residuals for \code{ls_optim}
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param ... Unused.
+#' @return Numeric vector of residuals.
+#'
+#' @method residuals ls_optim
+#' @export
 residuals.ls_optim <- function(object, ...) object$residuals
 
+#' Predict method for \code{ls_optim}
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param newdata Optional matrix or data frame of predictors (without intercept).
+#'   If omitted, in-sample fitted values are returned.
+#' @param ... Unused.
+#'
+#' @return Numeric vector of predictions.
+#'
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' X <- matrix(rnorm(50*2), 50, 2); colnames(X) <- c("x1","x2")
+#' y <- as.vector(cbind(1, X) %*% c(1, 2, -1) + rnorm(50))
+#' fit <- my_lm(X, y, B = 20)
+#' predict(fit, newdata = X[1:3, ])
+#' }
+#'
+#' @method predict ls_optim
+#' @export
 predict.ls_optim <- function(object, newdata = NULL, ...) {
   X <- object$X
   beta <- object$coefficients
@@ -156,9 +243,28 @@ predict.ls_optim <- function(object, newdata = NULL, ...) {
   as.vector(Xnew %*% beta)
 }
 
-# ------------------------------------------------------------------------------
-# Summary method: coef table with bootstrap SEs, z/t stats, p-values, CIs
-# ------------------------------------------------------------------------------
+#' Summary for \code{ls_optim} fits
+#'
+#' Produces a summary object including estimates, bootstrap standard errors,
+#' test statistics, p-values, and confidence intervals.
+#'
+#' If the bootstrap covariance is unavailable (e.g., too few successful
+#' resamples), a fallback OLS-style variance based on \eqn{\hat\sigma^2 (X^\top X)^{-1}}
+#' is used when invertible.
+#'
+#' @param object An \code{"ls_optim"} fit.
+#' @param conf.level Confidence level for two-sided intervals (default \code{0.95}).
+#' @param use.t Logical; if \code{TRUE} use \eqn{t}-reference with residual df; otherwise normal.
+#' @param ... Unused.
+#'
+#' @return An object of class \code{"summary.ls_optim"} containing:
+#' \itemize{
+#' \item \code{call}, \code{coefficients} (matrix with estimate, SE, stat, p, CI),
+#' \item \code{df_residual}, \code{conf.level}, \code{use.t}, \code{B}.
+#' }
+#'
+#' @importFrom stats qt pt pnorm qnorm printCoefmat
+#' @export
 summary.ls_optim <- function(object, conf.level = 0.95, use.t = TRUE, ...) {
   beta <- object$coefficients
   V    <- object$vcov
@@ -186,6 +292,7 @@ summary.ls_optim <- function(object, conf.level = 0.95, use.t = TRUE, ...) {
 
   tab <- cbind(Estimate = beta, `Std. Error` = se, `Statistic` = stat, `Pr(>|t|)` = pval,
                `CI Lower` = ci_l, `CI Upper` = ci_u)
+  attr(tab, "nboot") <- nrow(object$betas_boot)
   class(tab) <- c("coef_table_ls_optim", class(tab))
 
   ans <- list(
@@ -200,6 +307,17 @@ summary.ls_optim <- function(object, conf.level = 0.95, use.t = TRUE, ...) {
   ans
 }
 
+#' Print method for \code{summary.ls_optim}
+#'
+#' @param x An object of class \code{"summary.ls_optim"}.
+#' @param digits Integer; number of significant digits to print. Defaults to
+#'   two fewer than \code{getOption("digits")} but at least 3.
+#' @param ... Unused.
+#'
+#' @return Invisibly returns \code{x}.
+#'
+#' @method print summary.ls_optim
+#' @export
 print.summary.ls_optim <- function(x, digits = max(3L, getOption("digits") - 2L), ...) {
   cat("Call:\n"); print(x$call)
   cat("\nBootstrap-based coefficient table:\n")
@@ -215,11 +333,36 @@ print.summary.ls_optim <- function(x, digits = max(3L, getOption("digits") - 2L)
 # Helper to avoid importing rlang
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
-# ------------------------------------------------------------------------------
-# Plot marginals:
-#  - Scatter of y vs x_j
-#  - Marginal fitted line: alpha + beta_j * x_j + sum_{k!=j} beta_k * mean(X_k)
-# ------------------------------------------------------------------------------
+#' Marginal plots for \code{ls_optim} fits (base graphics)
+#'
+#' Produces scatter plots of \code{y} versus each predictor and overlays a
+#' “marginal” fitted line for variable \eqn{x_j} defined as
+#' \eqn{\alpha + \beta_j x_j + \sum_{k \neq j} \beta_k \bar X_k}, i.e., holding
+#' other covariates at their sample means.
+#'
+#' @param object An \code{"ls_optim"} fit returned by \code{\link{my_lm}}.
+#' @param variables Optional subset of variables to plot, as names or integer indices.
+#'   Defaults to all non-intercept columns.
+#' @param point_alpha Point opacity (0–1) passed to \code{\link[grDevices]{rgb}} for plotting.
+#' @param point_cex Point size (passed to \code{\link[graphics]{plot}}).
+#' @param line_lwd Line width for the marginal fit lines.
+#' @param npoints_line Number of points for the line grid along each predictor.
+#'
+#' @return \code{NULL} (invisibly). Called for its side effect of plotting.
+#'
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' n <- 80; p <- 2
+#' X <- matrix(rnorm(n*p), n, p); colnames(X) <- c("x1","x2")
+#' y <- as.vector(cbind(1, X) %*% c(1, 2, -1) + rnorm(n))
+#' fit <- my_lm(X, y, B = 30)
+#' plot_marginals(fit)
+#' }
+#'
+#' @importFrom graphics par plot lines
+#' @importFrom grDevices rgb
+#' @export
 plot_marginals <- function(object, variables = NULL, point_alpha = 0.6, point_cex = 0.8,
                            line_lwd = 2, npoints_line = 200) {
   stopifnot(inherits(object, "ls_optim"))

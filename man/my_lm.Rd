@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{my_lm}
 \alias{my_lm}
-\title{Linear regression via optimization}
+\title{Least-squares via \code{optim()} with bootstrap covariance}
 \usage{
 my_lm(
   X,
@@ -15,34 +15,58 @@ my_lm(
 )
 }
 \arguments{
-\item{X}{A \code{matrix} (not a data frame) of dimension nxp representing numerical predictors}
+\item{X}{Numeric matrix \eqn{n \times p} of predictors. If \code{add_intercept = TRUE},
+an intercept column is prepended internally.}
 
-\item{y}{A \code{vector} that represents the numeric response.}
+\item{y}{Numeric response vector of length \eqn{n}.}
 
-\item{B}{A \code{numeric} (integer) used to denote the number of bootstrap replications.}
+\item{B}{Integer; number of bootstrap resamples (default \code{100}).}
 
-\item{seed}{A \code{numeric} used to control the seed of the random number
-generator used by this function.}
+\item{add_intercept}{Logical; if \code{TRUE} (default) add an intercept column to \code{X}.}
+
+\item{optim_method}{Character; passed to \code{\link[stats]{optim}}'s \code{method} (default \code{"BFGS"}).}
+
+\item{optim_control}{List; control list passed to \code{\link[stats]{optim}} (default \code{list(maxit = 1000)}).}
+
+\item{...}{Additional arguments forwarded to \code{\link[stats]{optim}}.}
 }
 \value{
-A \code{list} of class ls_optim:
-\describe{
-     \item{I}{Estimated value of the integral}
-     \item{var}{Estimated variance of the estimator}
+An object of class \code{"ls_optim"} with elements:
+\itemize{
+\item \code{coefficients} — numeric named vector of \eqn{\hat\beta}.
+\item \code{vcov} — bootstrap covariance matrix of \eqn{\hat\beta}.
+\item \code{betas_boot} — matrix of bootstrap coefficient draws (rows).
+\item \code{fitted}, \code{residuals}, \code{sigma2_hat}, \code{df_residual}.
+\item \code{X}, \code{y}, \code{call}, \code{converged}, \code{B}, \code{add_intercept}.
 }
 }
 \description{
-Uses a least-square loss to estimate coefficients and provide inference tools
+Fits a linear model by minimizing the least-squares loss using
+\code{\link[stats]{optim}}, then estimates \eqn{\mathrm{Cov}(\hat\beta)} via a
+pairs (row) bootstrap of size \code{B}.
+}
+\details{
+The function performs:
+\enumerate{
+\item Deterministic fit of \eqn{\hat\beta} by minimizing \code{\link{ls_loss}} with \code{\link[stats]{optim}}.
+\item Pairs bootstrap: resample rows of \code{(X, y)} \code{B} times, refit, and compute
+  the sample covariance matrix of the bootstrap coefficients.
+}
+If too few bootstrap fits succeed, the covariance matrix is filled with \code{NA}.
 }
 \examples{
+\donttest{
 set.seed(1)
-n <- 120; p <- 8
-X <- matrix(rnorm(n * p), n, p)
-colnames(X) <- paste0("x", 1:p)
-beta_true <- c(2, -1.5, 0, 0, 1, rep(0, p - 5))
-y <- as.vector(X \%*\% beta_true + rnorm(n, sd = 1))
-fit <- my_lm(X, y, B = 200, add_intercept = TRUE)
+n <- 100; p <- 3
+X <- matrix(rnorm(n*p), n, p); colnames(X) <- paste0("x",1:p)
+beta <- c(2, -1, 0.5)
+y <- as.vector(cbind(1, X) \%*\% c(1, beta) + rnorm(n))
+fit <- my_lm(X, y, B = 50)
+print(fit)
 }
-\author{
-Roberto Molinari
+
+}
+\seealso{
+\code{\link[stats]{optim}}, \code{\link{summary.ls_optim}},
+  \code{\link{predict.ls_optim}}
 }
