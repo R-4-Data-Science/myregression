@@ -1,0 +1,85 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/",
+  out.width = "100%"
+)
+```
+
+# lsOptim
+
+*A lightweight teaching package illustrating least squares estimation via optimization and bootstrap inference.*
+
+---
+
+## Overview
+
+`myregression` provides a simple example of fitting linear models using **numerical optimization (`optim`)** instead of the analytical OLS formula, and demonstrates how to obtain **bootstrap standard errors** and confidence intervals.
+
+The package defines:
+
+- `ls_loss()` — least-squares loss function  
+- `my_lm()` — estimator using `optim()` and bootstrap covariance  
+- S3 methods: `print()`, `coef()`, `vcov()`, `fitted()`, `residuals()`, `predict()`, `summary()`, `plot_marginals()`
+
+This is ideal for illustrating numerical optimization, resampling, and custom S3 interfaces in R.
+
+---
+
+## Installation
+
+```r
+# Install development tools if needed
+install.packages("devtools")
+
+# Install from GitHub
+devtools::install_github("R-4-Data-Science/myregression")
+```
+
+---
+
+## Quick Example
+
+```{r example, message=FALSE}
+library(myregression)
+
+set.seed(1)
+n <- 100; p <- 3
+X <- matrix(rnorm(n * p), n, p)
+colnames(X) <- paste0("x", 1:p)
+beta_true <- c(2, -1, 0.5)
+y <- as.vector(cbind(1, X) %*% c(1, beta_true) + rnorm(n))
+
+fit <- my_lm(X, y, B = 50)
+print(fit)
+summary(fit)
+```
+
+---
+
+## Plotting Marginals
+
+```{r, eval = FALSE}
+plot_marginals(fit)
+```
+
+Each panel shows the scatter of `y` versus a predictor `x_j` along with the *marginal fitted line* that holds other variables at their sample means.
+
+---
+
+## License
+
+MIT © 2025 Roberto Molinari
+
+---
+
+## Acknowledgments
+
+Developed for instructional use in statistical computing and regression analysis courses at **Auburn University**.
